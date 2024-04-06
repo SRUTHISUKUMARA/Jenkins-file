@@ -1,0 +1,82 @@
+# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
+# More GitHub Actions for Azure: https://github.com/Azure/actions
+
+name: Build and deploy ASP.Net Core app to Azure Web App - app-fooddesire-web-sea-dev-001
+
+on:
+  push:
+    branches:
+      - production-web
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v2
+  
+      - name: Cache NuGet packages
+        uses: actions/cache@v2
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Set up .NET 7
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: '7.x'
+          include-prerelease: true
+          
+      - name: Setting User Secrets
+        env:
+            CONNECTIONSTRINGS_DEFAULTCONNECTION: ${{ secrets.USERSECRETS_CONNECTIONSTRINGS_DEFAULTCONNECTION }}
+            CONNECTIONSTRINGS_STORAGECONNECTION: ${{ secrets.USERSECRETS_CONNECTIONSTRINGS_STORAGECONNECTION }}
+            CLIENTID: ${{ secrets.USERSECRETS_CLIENTID }}
+            JWT_SIGNINKEY: ${{ secrets.USERSECRETS_JWT_SIGNINKEY }}
+            PAYPAL_CLIENTID: ${{ secrets.USERSECRETS_PAYPAL_CLIENTID }}
+            PAYPAL_SECRET: ${{ secrets.USERSECRETS_PAYPAL_SECRET }}
+        run: |
+            dotnet user-secrets set "ConnectionStrings:DefaultConnection" $env:CONNECTIONSTRINGS_DEFAULTCONNECTION --project .\Src\FoodDesire.AppSettings\
+            dotnet user-secrets set "ConnectionStrings:StorageConnection" $env:CONNECTIONSTRINGS_STORAGECONNECTION --project .\Src\FoodDesire.AppSettings\
+            dotnet user-secrets set "ClientID" $env:CLIENTID --project .\Src\FoodDesire.AppSettings\
+            dotnet user-secrets set "Jwt:SignInKey" $env:JWT_SIGNINKEY --project .\Src\FoodDesire.AppSettings\
+            dotnet user-secrets set "PayPal:ClientId" $env:PAYPAL_CLIENTID --project .\Src\FoodDesire.AppSettings\
+            dotnet user-secrets set "PayPal:Secret" $env:PAYPAL_SECRET --project .\Src\FoodDesire.AppSettings\
+        shell: pwsh
+
+      - name: Build with dotnet
+        run: dotnet build .\Src\FoodDesire.sln --configuration Release
+
+      - name: dotnet publish
+        run: dotnet publish .\Src\FoodDesire.Web.API\ -c Release -o ${{env.DOTNET_ROOT}}\FoodDesireApp
+
+      - name: Upload artifact for deployment job
+        uses: actions/upload-artifact@v2
+        with:
+          name: .net-app
+          path: ${{env.DOTNET_ROOT}}\FoodDesireApp
+
+  deploy:
+    runs-on: windows-latest
+    needs: build
+    environment:
+      name: 'Production'
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v2
+        with:
+          name: .net-app
+
+      - name: Deploy to Azure Web App
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: 'app-fooddesire-web-sea-dev-001'
+          slot-name: 'Production'
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_EB9A69B478DF44A8AD9482052764B3DF }}
+          package: .
